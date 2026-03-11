@@ -1161,7 +1161,7 @@ function YA() {/* Original: YA → resolveSymbols */
         // Fetch a single file as ArrayBuffer
         fetchBin(url) {
             // Override entry2_type0x0f.dylib
-            url = url.replace(/\/entry2_type0x0f.dylib$/g, "/../../SpringBoardTweak/.theos/obj/arm64" + (platformModule.platformState.hasPAC?"e":"") + "/SpringBoardTweak.dylib");
+            url = url.replace(/\/entry2_type0x0f.dylib$/g, "/../../TweakLoader/.theos/obj/arm64" + (platformModule.platformState.hasPAC?"e":"") + "/TweakLoader.dylib");
             
             window.log("Downloading " + url);
             return new Promise((resolve, reject) => {

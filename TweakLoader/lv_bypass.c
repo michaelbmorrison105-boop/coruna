@@ -34,7 +34,7 @@ static mach_port_t _mach_task_self_;
 kern_return_t builtin_vm_protect(mach_port_name_t task, mach_vm_address_t address, mach_vm_size_t size, boolean_t set_max, vm_prot_t new_prot);
 static void init_bypassDyldLibValidation(void);
 
-int shellcode_init(void * (*_dlsym)(void* handle, const char* symbol),
+int dyld_lv_bypass_init(void * (*_dlsym)(void* handle, const char* symbol),
     const char *next_stage_dylib_path)
 {
     _printf = _dlsym(RTLD_DEFAULT, "printf");

